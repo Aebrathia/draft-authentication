@@ -1,68 +1,62 @@
 const express = require('express');
 const app = express();
 const passport = require('passport');
-const LocalStrategy = require('passport-local').Strategy;
+const { Strategy, ExtractJwt } = require('passport-jwt');
+const jwt = require('jsonwebtoken');
 
-const user = {
-  username: 'admin',
-  password: 'password'
+const jwtOptions = {
+  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+  secretOrKey: '6}DqgeWHhGnj}-3jw$K&`(_N*e(x4V#N#,gE17A|oK$Bl?Y<J~e:`M[r6&Mt/3$',
+  // issuer: 'sso.wildcodeschool.fr', // Which service created the token
+  // audience: 'www.wildcodeschool.fr', // Which service is the token intended for
 }
 
-function isLoggedIn(req, res, next) {
-  if (req.isAuthenticated()) {
-    return next();
+const users = [{
+  id: 1,
+  email: 'john.smith@email.com',
+  password: 'password',
+}, {
+  id: 2,
+  email: 'foo.bar@email.com',
+  password: 'password2',
+}];
+
+passport.use(new Strategy(jwtOptions, (jwtPayload, done) => {
+  const user = users.find(u => u.id === jwtPayload.id);
+
+  if (user) {
+    const { password, ...userWithoutPassword } = user;
+    return done(null, userWithoutPassword);
   }
 
-  return res.redirect('/login');
-}
-
-passport.serializeUser((user, done) => done(null, user.username));
-passport.deserializeUser((username, done) => done(err, { username: user.username }));
-passport.use(new LocalStrategy((username, password, done) => {
-  console.log({ username, password })
-  if (username !== user.username) {
-    return done(null, false, { message: 'Incorrect username.' });
-  }
-  if (password !== user.password) {
-    return done(null, false, { message: 'Incorrect password.' });
-  }
-  return done(null, { username: user.username });
+  return done(null, false);
 }));
 
 app.use(passport.initialize());
-app.use(passport.session());
 app.use(express.urlencoded());
 app.use(express.json());
 
-app.get('/', (req, res) => {
-  res.send('Hello World!');
+app.get('/api/v1/users', passport.authenticate('jwt', { session: false }), (req, res) => {
+  res.send(req.user);
 });
 
-app.get('/users/:username', isLoggedIn, (req, res) => {
-  res.send(req.user.username);
-});
+app.post('/login', (req, res) => {
+  const { email, password } = req.body;
 
-app.get('/login', (req, res) => {
-  res.send(`
-    <form action="/login" method="post">
-      <label for="username">Username</label>
-      <input type="text" id="username" name="username" />
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" />
-      <button type="submit">Submit</submit>
-    </form>
-  `);
-});
+  const user = users.find(u => u.email === email);
 
-app.post(
-  '/login',
-  passport.authenticate('local', {
-    failureRedirect: '/login',
-  }),
-  (req, res) => {
-    res.redirect('/users/' + req.user.username);
+  if (!user) {
+    return res.status(401).send();
   }
-);
+
+  if (user.password !== password) {
+    return res.status(401).send();
+  }
+
+  const payload = { id: user.id };
+  const token = jwt.sign(payload, jwtOptions.secretOrKey);
+  res.send({ token });
+});
 
 app.listen(3000, () => {
   console.log('Listening on port 3000');
